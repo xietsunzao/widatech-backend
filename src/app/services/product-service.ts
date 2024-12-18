@@ -21,11 +21,8 @@ export class ProductService {
 
     static async checkProductExists(id: number): Promise<boolean> {
         // check id first
-        if (isNaN(id)) {
-            return false;
-        }
-        const product = await this.getProductById(id);
-        return product !== null;
+        if (isNaN(id)) return false;
+        return await this.getProductById(id) !== null;
     }
 
     static async createProduct(product: CreateProductDto): Promise<ProductModel> {
