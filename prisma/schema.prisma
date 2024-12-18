@@ -1,0 +1,40 @@
+// schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Invoice {
+  id              Int         @id @default(autoincrement())
+  product_id      Int
+  invoice_no      String      @unique
+  invoice_date    DateTime
+  customer_name   String      @db.VarChar(100)
+  salesperson     String      @db.VarChar(100)
+  payment_type    PaymentType
+  notes           String?     @db.Text
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
+  product         Product     @relation(fields: [product_id], references: [id])
+}
+
+model Product {
+  id              Int       @id @default(autoincrement())
+  name            String    @db.VarChar(100)
+  qty             Int
+  total_cogs      Int
+  total_price     Int
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  invoices        Invoice[]
+}
+
+enum PaymentType {
+  CASH
+  CREDIT
+}
