@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach, mock } from "bun:test";
 import { InvoiceService } from '@services/invoice-service';
 import { Invoice } from '@prisma/client';
+import { InvoiceDetailSummary } from '@models/invoice-model';
 
 // Mock the database module with proper types
 const mockDb = {
@@ -81,6 +82,70 @@ describe('InvoiceService', () => {
 
             // Act & Assert
             await expect(InvoiceService.getInvoices())
+                .rejects
+                .toThrow('Database connection failed');
+        });
+    });
+
+    describe('getInvoiceById', () => {
+        test('should return invoice when found', async () => {
+            // Arrange
+            const mockInvoice: Invoice = {
+                id: 1,
+                invoice_no: 'INV-001',
+                invoice_date: new Date(),
+                customer_name: 'John Doe',
+                salesperson: 'Jane Smith',
+                payment_type: 'CASH',
+                notes: 'Test note',
+                created_at: new Date(),
+                updated_at: new Date()
+            };
+
+            const mockInvoiceWithProducts = {
+                ...mockInvoice,
+                products: [{
+                    product: {
+                        total_price: 150,
+                        total_cogs: 100
+                    }
+                }]
+            };
+
+            const expectedResponse = {
+                ...mockInvoiceWithProducts,
+                summary: {
+                    total_profit: 50, // (150 - 100) * 1
+                    is_cash_transaction: true
+                }
+            };
+
+            mockDb.invoice.findUnique = () => Promise.resolve(mockInvoiceWithProducts);
+
+            // Act
+            const result = await InvoiceService.getInvoiceById(1);
+
+            // Assert
+            expect(result).toEqual(expectedResponse);
+        });
+
+        test('should throw error when invoice not found', async () => {
+            // Arrange
+            mockDb.invoice.findUnique = () => Promise.resolve(null);
+
+            // Act & Assert
+            await expect(InvoiceService.getInvoiceById(999))
+                .rejects
+                .toThrow('Invoice not found');
+        });
+
+        test('should handle database errors', async () => {
+            // Arrange
+            const dbError = new Error('Database connection failed');
+            mockDb.invoice.findUnique = () => Promise.reject(dbError);
+
+            // Act & Assert
+            await expect(InvoiceService.getInvoiceById(1))
                 .rejects
                 .toThrow('Database connection failed');
         });
