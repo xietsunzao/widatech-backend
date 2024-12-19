@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx';
 import {
     InvoiceModel,
     PaginatedInvoices,
@@ -9,8 +10,7 @@ import { Validator } from '@core/validator';
 import { CreateInvoiceDto } from '@dto/invoice/create-invoice-dto';
 import { UpdateInvoiceDto } from '@dto/invoice/update-invoice-dto';
 import { InvoiceValidation } from '@validations/invoice-validation';
-import * as XLSX from 'xlsx';
-
+import { generateRandomCustomerName } from '@utils/random-customer-name';
 interface ImportError {
     invoice_no: string;
     errors: string[];
@@ -420,7 +420,7 @@ export class InvoiceService {
                             data: {
                                 invoice_no: invoice.invoice_no,
                                 invoice_date: new Date(),
-                                customer_name: invoice.customer_name,
+                                customer_name: generateRandomCustomerName(),
                                 salesperson: invoice.salesperson,
                                 payment_type: 'CASH',
                                 notes: invoice.notes,
