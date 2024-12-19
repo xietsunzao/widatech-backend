@@ -10,28 +10,39 @@ datasource db {
 }
 
 model Invoice {
-  id              Int         @id @default(autoincrement())
-  product_id      Int
-  invoice_no      String      @unique
+  id              Int                   @id @default(autoincrement())
+  invoice_no      String                @unique
   invoice_date    DateTime
-  customer_name   String      @db.VarChar(100)
-  salesperson     String      @db.VarChar(100)
+  customer_name   String                @db.VarChar(100)
+  salesperson     String                @db.VarChar(100)
   payment_type    PaymentType
-  notes           String?     @db.Text
-  created_at      DateTime    @default(now())
-  updated_at      DateTime    @updatedAt
-  product         Product     @relation(fields: [product_id], references: [id])
+  notes           String?               @db.Text
+  created_at      DateTime              @default(now())
+  updated_at      DateTime              @updatedAt
+  products        InvoiceHasProducts[]
 }
 
 model Product {
-  id              Int       @id @default(autoincrement())
-  name            String    @db.VarChar(100)
+  id              Int                   @id @default(autoincrement())
+  name            String                @db.VarChar(100)
   qty             Int
   total_cogs      Int
   total_price     Int
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
-  invoices        Invoice[]
+  created_at      DateTime              @default(now())
+  updated_at      DateTime              @updatedAt
+  invoices        InvoiceHasProducts[]
+}
+
+model InvoiceHasProducts {
+  id          Int      @id @default(autoincrement())
+  invoice_id  Int
+  product_id  Int
+  invoice     Invoice  @relation(fields: [invoice_id], references: [id])
+  product     Product  @relation(fields: [product_id], references: [id])
+
+  @@map("invoice_has_products")
+  @@index([invoice_id])
+  @@index([product_id])
 }
 
 enum PaymentType {
