@@ -411,7 +411,7 @@ export class InvoiceService {
                                 invoice_date: new Date(),
                                 customer_name: invoice.customer_name,
                                 salesperson: invoice.salesperson,
-                                payment_type: invoice.payment_type,
+                                payment_type: 'CASH',
                                 notes: invoice.notes,
                                 products: {
                                     create: invoice.products?.map((product) => ({

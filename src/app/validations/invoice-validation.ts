@@ -104,9 +104,6 @@ export class InvoiceValidation {
             salesperson: z.string()
                 .nonempty("Salesperson name is required")
                 .min(2, "Salesperson name must be at least 2 characters"),
-            payment_type: z.enum(['CASH', 'CREDIT'], {
-                errorMap: () => ({ message: "Payment type must be either CASH or CREDIT" })
-            }),
             notes: z.string()
                 .min(5, "Notes must be at least 5 characters")
                 .optional()
