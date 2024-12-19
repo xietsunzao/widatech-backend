@@ -38,7 +38,7 @@ export class ProductController {
         try {
             const product = req.body as CreateProductDto;
             const createdProduct = await ProductService.createProduct(product);
-            res.json(ResponseHelper.success(createdProduct, "Product created successfully"));
+            res.status(201).json(ResponseHelper.success(createdProduct, "Product created successfully"));
         } catch (error) {
             Validator.handleError(error, res);
         }
