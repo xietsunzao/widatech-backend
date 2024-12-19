@@ -12,7 +12,6 @@ interface ValidationResponse {
     success: boolean;
     message: string;
     errors?: ValidationError[];
-    data?: any;
 }
 
 export class Validator {
@@ -52,7 +51,11 @@ export class Validator {
                     return;
                 }
             } catch {
-                // Not a JSON error, treat as regular error
+                res.status(500).json({
+                    success: false,
+                    message: "An error occurred",
+                    error: error instanceof Error ? error.message : "Unknown error"
+                });
             }
         }
         
@@ -62,5 +65,33 @@ export class Validator {
             message: "An error occurred",
             error: error instanceof Error ? error.message : "Unknown error"
         });
+    }
+
+    // validate async
+    static async validateAsync<T>(schema: z.ZodSchema<T>, data: unknown): Promise<T> {
+        try {
+            return await schema.parseAsync(data);
+        } catch (error) {
+            if (error instanceof z.ZodError) {
+                const formattedErrors: ValidationError[] = error.errors.map(err => ({
+                    field: err.path.join('.'),
+                    code: err.code,
+                    message: err.message,
+                    details: {
+                        ...err,
+                        path: undefined,
+                        code: undefined,
+                        message: undefined
+                    }
+                }));
+                
+                throw new Error(JSON.stringify({
+                    success: false,
+                    message: "Validation failed",
+                    errors: formattedErrors
+                }));
+            }
+            throw error;
+        }
     }
 }
