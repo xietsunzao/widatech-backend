@@ -3,7 +3,11 @@ import {
     InvoiceModel,
     PaginatedInvoices,
     InvoiceSummary,
-    InvoiceDetailSummary
+    InvoiceDetailSummary,
+    ImportResult,
+    ImportError,
+    ExcelInvoice,
+    ExcelProduct
 } from '@models/invoice-model';
 import { db } from '@core/database';
 import { Validator } from '@core/validator';
@@ -11,33 +15,6 @@ import { CreateInvoiceDto } from '@dto/invoice/create-invoice-dto';
 import { UpdateInvoiceDto } from '@dto/invoice/update-invoice-dto';
 import { InvoiceValidation } from '@validations/invoice-validation';
 import { generateRandomCustomerName } from '@utils/random-customer-name';
-interface ImportError {
-    invoice_no: string;
-    errors: string[];
-}
-
-interface ImportResult {
-    success: boolean;
-    message: string;
-    errors?: ImportError[];
-    imported_count?: number;
-}
-
-interface ExcelInvoice {
-    invoice_no: string;
-    customer_name: string;
-    salesperson: string;
-    payment_type: 'CASH' | 'CREDIT';
-    notes?: string;
-}
-
-interface ExcelProduct {
-    invoice_no: string;
-    item: string;
-    quantity: number;
-    total_cogs: number;
-    total_price: number;
-}
 
 export class InvoiceService {
     // get all invoices with their products
