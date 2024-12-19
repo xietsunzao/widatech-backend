@@ -52,6 +52,12 @@ bunx prisma migrate dev
 5. Start the server:
 ```bash
 bun dev
+
+# or build the server
+bun run build
+
+# then run the server
+bun dist/main.js
 ```
 
 ## API Endpoints

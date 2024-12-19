@@ -11,7 +11,7 @@
     "dev": "bun --watch --smol run ./src/main.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "build": "bun build ./server.ts --outdir ./dist --target bun",
+    "build": "bun build src/main.ts --outdir ./dist --target node --minify",
     "prsima:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
   },
