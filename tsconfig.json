@@ -36,7 +36,9 @@
         "@utils/*": ["utils/*"],
         "@dto/*": ["dto/*"],
         "@validations/*": ["validations/*"],
+        "@tests/*": ["./tests/*"]
       }
 
-    }
+    },
+    "include": ["src/**/*", "tests/**/*"]
   }
