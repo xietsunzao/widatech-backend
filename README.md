@@ -51,7 +51,7 @@ bunx prisma migrate dev
 
 5. Start the server:
 ```bash
-bun run index.ts
+bun dev
 ```
 
 ## API Endpoints
