@@ -34,6 +34,9 @@ export class ProductService {
 
     static async updateProduct(id: number, product: UpdateProductDto): Promise<ProductModel> {     
         const validatedData = Validator.validate(ProductValidation.updateProduct, product);
+        const existingProduct = await this.getProductById(id);
+        if (!existingProduct) return null;
+        
         return db.product.update({
             where: { id: id },
             data: validatedData
@@ -41,6 +44,9 @@ export class ProductService {
     }
 
     static async deleteProduct(id: number): Promise<ProductModel> {
+        const existingProduct = await this.getProductById(id);
+        if (!existingProduct) return null;
+
         return db.product.delete({
             where: { id: id }
         });
