@@ -159,6 +159,38 @@ export class InvoiceService {
     static async createInvoice(data: CreateInvoiceDto): Promise<InvoiceModel> {
         const validatedData = await Validator.validateAsync(InvoiceValidation.createInvoice, data);
 
+        // Check if all products exist before creating the invoice
+        const productIds = validatedData.products.map(p => p.product_id);
+        const existingProducts = await db.product.findMany({
+            where: {
+                id: {
+                    in: productIds
+                }
+            },
+            select: {
+                id: true
+            }
+        });
+
+        // Create a Set of existing product IDs for efficient lookup
+        const existingProductIds = new Set(existingProducts.map(p => p.id));
+
+        // Find any product IDs that don't exist
+        const nonExistentProducts = productIds.filter(id => !existingProductIds.has(id));
+
+        if (nonExistentProducts.length > 0) {
+            throw new Error(JSON.stringify({
+                success: false,
+                message: "Validation failed",
+                errors: [{
+                    field: "products",
+                    code: "invalid_reference",
+                    message: `Products with IDs ${nonExistentProducts.join(', ')} do not exist`
+                }]
+            }));
+        }
+
+        // If all products exist, proceed with invoice creation
         return db.invoice.create({
             data: {
                 invoice_no: validatedData.invoice_no,
@@ -168,7 +200,7 @@ export class InvoiceService {
                 payment_type: validatedData.payment_type,
                 notes: validatedData.notes,
                 products: {
-                    create: validatedData.products.map((product: { product_id: number }) => ({
+                    create: validatedData.products.map((product) => ({
                         product: {
                             connect: {
                                 id: product.product_id
