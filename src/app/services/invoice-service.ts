@@ -297,9 +297,30 @@ export class InvoiceService {
                 header: ['invoice_no', 'item', 'quantity', 'total_cogs', 'total_price'],
                 range: 1
             });
+
+            // Group products by invoice_no
+            const productsByInvoice = new Map<string, Array<ExcelProduct>>();
+            
+            for (const rawProduct of products) {
+                const quantity = Number(rawProduct.quantity);
+                const total_cogs = Number(rawProduct.total_cogs);
+                const total_price = Number(rawProduct.total_price);
+
+                if (!productsByInvoice.has(rawProduct.invoice_no)) {
+                    productsByInvoice.set(rawProduct.invoice_no, []);
+                }
+
+                productsByInvoice.get(rawProduct.invoice_no)?.push({
+                    invoice_no: rawProduct.invoice_no,
+                    item: rawProduct.item,
+                    quantity,
+                    total_cogs,
+                    total_price
+                });
+            }
             
             const errors: ImportError[] = [];
-            const validInvoices = new Map<string, ExcelInvoice & { products?: ExcelProduct[] }>();
+            const validInvoices = new Map<string, ExcelInvoice & { products: ExcelProduct[] }>();
 
             // Helper function to format validation errors
             const formatValidationError = (error: unknown): string[] => {
@@ -319,10 +340,31 @@ export class InvoiceService {
                 return [String(error)];
             };
 
-            // Validate invoices
+            // Check for existing invoice numbers
+            const existingInvoiceNos = await db.invoice.findMany({
+                where: {
+                    invoice_no: {
+                        in: [...new Set(invoices.map(inv => inv.invoice_no))]
+                    }
+                },
+                select: {
+                    invoice_no: true
+                }
+            });
+
+            const existingInvoiceSet = new Set(existingInvoiceNos.map(inv => inv.invoice_no));
+
+            // Validate invoices and their products together
             for (const invoice of invoices) {
                 try {
-                    // Convert empty strings to undefined
+                    if (existingInvoiceSet.has(invoice.invoice_no)) {
+                        errors.push({
+                            invoice_no: invoice.invoice_no,
+                            errors: ["Invoice number already exists in the system"]
+                        });
+                        continue;
+                    }
+
                     const cleanedInvoice = Object.fromEntries(
                         Object.entries(invoice).map(([key, value]) => [
                             key,
@@ -334,10 +376,21 @@ export class InvoiceService {
                         InvoiceValidation.importInvoice.invoice, 
                         cleanedInvoice
                     );
+
+                    const invoiceProducts = productsByInvoice.get(invoice.invoice_no) || [];
                     
-                    if (!validInvoices.has(invoice.invoice_no)) {
-                        validInvoices.set(invoice.invoice_no, invoice);
+                    // Validate all products for this invoice
+                    for (const product of invoiceProducts) {
+                        await Validator.validateAsync(
+                            InvoiceValidation.importInvoice.product,
+                            product
+                        );
                     }
+
+                    validInvoices.set(invoice.invoice_no, {
+                        ...invoice,
+                        products: invoiceProducts
+                    });
                 } catch (error) {
                     errors.push({
                         invoice_no: invoice.invoice_no || 'Unknown',
@@ -346,65 +399,23 @@ export class InvoiceService {
                 }
             }
 
-            // Validate products
-            for (const rawProduct of products) {
-                try {
-                    // Convert string numbers to actual numbers and validate
-                    const quantity = Number(rawProduct.quantity);
-                    const total_cogs = Number(rawProduct.total_cogs);
-                    const total_price = Number(rawProduct.total_price);
-
-                    // Check if conversions are valid numbers
-                    if (isNaN(quantity) || isNaN(total_cogs) || isNaN(total_price)) {
-                        throw new Error(JSON.stringify({
-                            errors: [
-                                ...(isNaN(quantity) ? [{ field: 'quantity', message: 'Must be a valid number' }] : []),
-                                ...(isNaN(total_cogs) ? [{ field: 'total_cogs', message: 'Must be a valid number' }] : []),
-                                ...(isNaN(total_price) ? [{ field: 'total_price', message: 'Must be a valid number' }] : [])
-                            ]
-                        }));
-                    }
-
-                    const cleanedProduct: ExcelProduct = {
-                        invoice_no: rawProduct.invoice_no,
-                        item: rawProduct.item,
-                        quantity,
-                        total_cogs,
-                        total_price
-                    };
-
-                    await Validator.validateAsync(
-                        InvoiceValidation.importInvoice.product, 
-                        cleanedProduct
-                    );
-
-                    if (!validInvoices.has(cleanedProduct.invoice_no)) {
-                        errors.push({
-                            invoice_no: cleanedProduct.invoice_no,
-                            errors: ["Product references non-existent invoice"]
-                        });
-                        continue;
-                    }
-
-                    const invoice = validInvoices.get(cleanedProduct.invoice_no);
-                    if (invoice) {
-                        if (!invoice.products) {
-                            invoice.products = [];
-                        }
-                        invoice.products.push(cleanedProduct);
-                    }
-                } catch (error) {
-                    errors.push({
-                        invoice_no: rawProduct.invoice_no || 'Unknown',
-                        errors: formatValidationError(error)
-                    });
-                }
-            }
-
-            // Save valid invoices
+            // Save valid invoices with their products
             if (validInvoices.size > 0) {
                 await db.$transaction(async (prisma) => {
                     for (const [_, invoice] of validInvoices) {
+                        // Double-check for race conditions
+                        const existingInvoice = await prisma.invoice.findUnique({
+                            where: { invoice_no: invoice.invoice_no }
+                        });
+
+                        if (existingInvoice) {
+                            errors.push({
+                                invoice_no: invoice.invoice_no,
+                                errors: ["Invoice number already exists in the system"]
+                            });
+                            continue;
+                        }
+
                         await prisma.invoice.create({
                             data: {
                                 invoice_no: invoice.invoice_no,
@@ -414,7 +425,7 @@ export class InvoiceService {
                                 payment_type: 'CASH',
                                 notes: invoice.notes,
                                 products: {
-                                    create: invoice.products?.map((product) => ({
+                                    create: invoice.products.map((product) => ({
                                         product: {
                                             create: {
                                                 name: product.item,
@@ -432,8 +443,8 @@ export class InvoiceService {
             }
 
             return {
-                success: true,
-                message: "Import completed",
+                success: errors.length === 0,
+                message: errors.length === 0 ? "Import completed successfully" : "Import completed with errors",
                 errors: errors.length > 0 ? errors : undefined,
                 imported_count: validInvoices.size
             };
