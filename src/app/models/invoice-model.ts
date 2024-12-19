@@ -17,3 +17,13 @@ export interface PaginatedInvoices {
     data: Invoice[];
     meta: PaginationMeta;
 }
+
+export interface InvoiceSummary {
+    total_profit: number;
+    total_cash_transactions: number;
+}
+
+export interface InvoiceDetailSummary {
+    total_profit: number;
+    is_cash_transaction: boolean;
+}
