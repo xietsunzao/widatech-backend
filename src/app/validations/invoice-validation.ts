@@ -103,10 +103,7 @@ export class InvoiceValidation {
                 .min(2, "Customer name must be at least 2 characters"),
             salesperson: z.string()
                 .nonempty("Salesperson name is required")
-                .min(2, "Salesperson name must be at least 2 characters"),
-            notes: z.string()
-                .min(5, "Notes must be at least 5 characters")
-                .optional()
+                .min(2, "Salesperson name must be at least 2 characters")
         }),
         
         product: z.object({
