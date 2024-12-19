@@ -9,6 +9,35 @@ import { Validator } from '@core/validator';
 import { CreateInvoiceDto } from '@dto/invoice/create-invoice-dto';
 import { UpdateInvoiceDto } from '@dto/invoice/update-invoice-dto';
 import { InvoiceValidation } from '@validations/invoice-validation';
+import * as XLSX from 'xlsx';
+
+interface ImportError {
+    invoice_no: string;
+    errors: string[];
+}
+
+interface ImportResult {
+    success: boolean;
+    message: string;
+    errors?: ImportError[];
+    imported_count?: number;
+}
+
+interface ExcelInvoice {
+    invoice_no: string;
+    customer_name: string;
+    salesperson: string;
+    payment_type: 'CASH' | 'CREDIT';
+    notes?: string;
+}
+
+interface ExcelProduct {
+    invoice_no: string;
+    item: string;
+    quantity: number;
+    total_cogs: number;
+    total_price: number;
+}
 
 export class InvoiceService {
     // get all invoices with their products
@@ -241,5 +270,160 @@ export class InvoiceService {
                 }
             }
         });
+    }
+
+    static async importInvoice(file: Express.Multer.File): Promise<ImportResult> {
+        try {
+            const workbook = XLSX.read(file.buffer);
+            
+            // Read both sheets
+            const invoiceSheet = workbook.Sheets[workbook.SheetNames[0]];
+            const productSheet = workbook.Sheets[workbook.SheetNames[1]];
+            
+            // Convert to JSON with header row mapping
+            const invoices = XLSX.utils.sheet_to_json<ExcelInvoice>(invoiceSheet, {
+                raw: false,
+                dateNF: 'yyyy-mm-dd',
+                header: ['invoice_no', 'customer_name', 'salesperson', 'payment_type', 'notes'],
+                range: 1  // Skip header row
+            });
+            
+            const products = XLSX.utils.sheet_to_json<ExcelProduct>(productSheet, {
+                raw: false,
+                header: ['invoice_no', 'item', 'quantity', 'total_cogs', 'total_price'],
+                range: 1  // Skip header row
+            });
+            
+            const errors: ImportError[] = [];
+            const validInvoices = new Map<string, ExcelInvoice & { products?: ExcelProduct[] }>();
+
+            // Validate invoices
+            for (const invoice of invoices) {
+                try {
+                    // Convert empty strings to undefined for proper validation
+                    const cleanedInvoice = Object.fromEntries(
+                        Object.entries(invoice).map(([key, value]) => [
+                            key,
+                            value === '' ? undefined : value
+                        ])
+                    );
+
+                    const validatedInvoice = await Validator.validateAsync(
+                        InvoiceValidation.importInvoice.invoice, 
+                        cleanedInvoice
+                    );
+                    
+                    // Check for duplicate invoice numbers
+                    const existingInvoice = await db.invoice.findFirst({
+                        where: { invoice_no: validatedInvoice.invoice_no }
+                    });
+                    
+                    if (existingInvoice) {
+                        errors.push({
+                            invoice_no: validatedInvoice.invoice_no,
+                            errors: ["Invoice number already exists"]
+                        });
+                        continue;
+                    }
+                    
+                    validInvoices.set(validatedInvoice.invoice_no, validatedInvoice);
+                } catch (error) {
+                    // Parse validation error if it's stringified
+                    let errorMessage = error instanceof Error ? error.message : String(error);
+                    try {
+                        const parsedError = JSON.parse(errorMessage);
+                        errorMessage = parsedError.errors?.map((e: any) => 
+                            `${e.field}: ${e.message}`
+                        ).join(', ') || errorMessage;
+                    } catch {
+                        // If parsing fails, use the original message
+                    }
+
+                    errors.push({
+                        invoice_no: (invoice as ExcelInvoice).invoice_no || 'Unknown',
+                        errors: [errorMessage]
+                    });
+                }
+            }
+
+            // Validate products and match with invoices
+            for (const product of products) {
+                try {
+                    const validatedProduct = await Validator.validateAsync(
+                        InvoiceValidation.importInvoice.product, 
+                        product
+                    );
+                    
+                    if (!validInvoices.has(validatedProduct.invoice_no)) {
+                        errors.push({
+                            invoice_no: validatedProduct.invoice_no,
+                            errors: ["Product references non-existent invoice"]
+                        });
+                        validInvoices.delete(validatedProduct.invoice_no);
+                        continue;
+                    }
+                    
+                    const invoice = validInvoices.get(validatedProduct.invoice_no);
+                    if (invoice && !invoice.products) {
+                        invoice.products = [];
+                    }
+                    invoice?.products?.push(validatedProduct);
+                    
+                } catch (error) {
+                    errors.push({
+                        invoice_no: (product as ExcelProduct).invoice_no || 'Unknown',
+                        errors: [(error as Error).message]
+                    });
+                    validInvoices.delete((product as ExcelProduct).invoice_no);
+                }
+            }
+
+            // Save valid invoices
+            if (validInvoices.size > 0) {
+                await db.$transaction(async (prisma) => {
+                    for (const [_, invoice] of validInvoices) {
+                        await prisma.invoice.create({
+                            data: {
+                                invoice_no: invoice.invoice_no,
+                                invoice_date: new Date(),
+                                customer_name: invoice.customer_name,
+                                salesperson: invoice.salesperson,
+                                payment_type: invoice.payment_type,
+                                notes: invoice.notes,
+                                products: {
+                                    create: invoice.products?.map((product) => ({
+                                        product: {
+                                            create: {
+                                                name: product.item,
+                                                qty: product.quantity,
+                                                total_cogs: product.total_cogs,
+                                                total_price: product.total_price
+                                            }
+                                        }
+                                    }))
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+
+            return {
+                success: true,
+                message: "Import completed",
+                errors: errors.length > 0 ? errors : undefined,
+                imported_count: validInvoices.size
+            };
+
+        } catch (error) {
+            return {
+                success: false,
+                message: "Import failed",
+                errors: [{
+                    invoice_no: "System",
+                    errors: [(error as Error).message]
+                }]
+            };
+        }
     }
 }
