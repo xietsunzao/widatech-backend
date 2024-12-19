@@ -2,6 +2,7 @@ import { InvoiceModel, PaginatedInvoices } from '@models/invoice-model';
 import { db } from '@core/database';
 import { Validator } from '@core/validator';
 import { CreateInvoiceDto } from '@dto/invoice/create-invoice-dto';
+import { UpdateInvoiceDto } from '@dto/invoice/update-invoice-dto';
 import { InvoiceValidation } from '@validations/invoice-validation';
 
 export class InvoiceService {
@@ -101,6 +102,68 @@ export class InvoiceService {
                     }))
                 }
             },
+            include: {
+                products: {
+                    include: {
+                        product: true
+                    }
+                }
+            }
+        });
+    }
+
+    // update invoice with products
+    static async updateInvoice(id: number, data: UpdateInvoiceDto): Promise<InvoiceModel> {
+        const validatedData = await Validator.validateAsync(InvoiceValidation.updateInvoice(id), data);
+        
+        // First, delete all existing product relationships
+        await db.invoiceHasProducts.deleteMany({
+            where: {
+                invoice_id: id
+            }
+        });
+
+        // Then update invoice and create new product relationships
+        return db.invoice.update({
+            where: { id },
+            data: {
+                invoice_no: validatedData.invoice_no,
+                customer_name: validatedData.customer_name,
+                salesperson: validatedData.salesperson,
+                payment_type: validatedData.payment_type,
+                notes: validatedData.notes,
+                products: {
+                    create: validatedData.products?.map(product => ({
+                        product: {
+                            connect: {
+                                id: product.product_id
+                            }
+                        }
+                    }))
+                }
+            },
+            include: {
+                products: {
+                    include: {
+                        product: true
+                    }
+                }
+            }
+        });
+    }
+
+    // delete invoice
+    static async deleteInvoice(id: number): Promise<InvoiceModel> {
+        // First, delete all product relationships
+        await db.invoiceHasProducts.deleteMany({
+            where: {
+                invoice_id: id
+            }
+        });
+
+        // Then delete the invoice
+        return db.invoice.delete({
+            where: { id },
             include: {
                 products: {
                     include: {

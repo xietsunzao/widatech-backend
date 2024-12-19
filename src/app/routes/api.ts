@@ -14,3 +14,5 @@ api.delete("/api/product/:id", ProductController.deleteProduct);
 api.get("/api/invoices", InvoiceController.getInvoices);
 api.get("/api/invoice/:id", InvoiceController.getInvoiceById);
 api.post("/api/invoice", InvoiceController.createInvoice);
+api.put("/api/invoice/:id", InvoiceController.updateInvoice);
+api.delete("/api/invoice/:id", InvoiceController.deleteInvoice);

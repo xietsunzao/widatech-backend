@@ -21,12 +21,12 @@ export class ProductController {
     static async getProductById(req: Request, res: Response): Promise<void> {
         try {
             const id = parseInt(req.params.id);
-            const product = await ProductService.getProductById(id);
-            
-            if (!product) {
+            const existingProduct = await ProductService.checkProductExists(id);
+            if (!existingProduct) {
                 res.status(404).json(ResponseHelper.notFound("Product not found"));
                 return;
             }
+            const product = await ProductService.getProductById(id);
             res.json(ResponseHelper.success(product, "Product retrieved successfully"));
         } catch (error) {
             res.status(500).json(ResponseHelper.error("Error retrieving product", error));
@@ -76,4 +76,5 @@ export class ProductController {
             Validator.handleError(error, res);
         }
     }
+    
 }
