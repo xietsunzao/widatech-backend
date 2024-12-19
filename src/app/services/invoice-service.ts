@@ -275,8 +275,6 @@ export class InvoiceService {
     static async importInvoice(file: Express.Multer.File): Promise<ImportResult> {
         try {
             const workbook = XLSX.read(file.buffer);
-            
-            // Read both sheets
             const invoiceSheet = workbook.Sheets[workbook.SheetNames[0]];
             const productSheet = workbook.Sheets[workbook.SheetNames[1]];
             
@@ -285,22 +283,46 @@ export class InvoiceService {
                 raw: false,
                 dateNF: 'yyyy-mm-dd',
                 header: ['invoice_no', 'customer_name', 'salesperson', 'payment_type', 'notes'],
-                range: 1  // Skip header row
+                range: 1
             });
             
-            const products = XLSX.utils.sheet_to_json<ExcelProduct>(productSheet, {
+            const products = XLSX.utils.sheet_to_json<{
+                invoice_no: string;
+                item: string;
+                quantity: string;
+                total_cogs: string;
+                total_price: string;
+            }>(productSheet, {
                 raw: false,
                 header: ['invoice_no', 'item', 'quantity', 'total_cogs', 'total_price'],
-                range: 1  // Skip header row
+                range: 1
             });
             
             const errors: ImportError[] = [];
             const validInvoices = new Map<string, ExcelInvoice & { products?: ExcelProduct[] }>();
 
+            // Helper function to format validation errors
+            const formatValidationError = (error: unknown): string[] => {
+                if (error instanceof Error) {
+                    try {
+                        const parsed = JSON.parse(error.message);
+                        if (parsed.errors) {
+                            return parsed.errors.map((err: any) => 
+                                `${err.field}: ${err.message}`
+                            );
+                        }
+                        return [error.message];
+                    } catch {
+                        return [error.message];
+                    }
+                }
+                return [String(error)];
+            };
+
             // Validate invoices
             for (const invoice of invoices) {
                 try {
-                    // Convert empty strings to undefined for proper validation
+                    // Convert empty strings to undefined
                     const cleanedInvoice = Object.fromEntries(
                         Object.entries(invoice).map(([key, value]) => [
                             key,
@@ -308,73 +330,74 @@ export class InvoiceService {
                         ])
                     );
 
-                    const validatedInvoice = await Validator.validateAsync(
+                    await Validator.validateAsync(
                         InvoiceValidation.importInvoice.invoice, 
                         cleanedInvoice
                     );
                     
-                    // Check for duplicate invoice numbers
-                    const existingInvoice = await db.invoice.findFirst({
-                        where: { invoice_no: validatedInvoice.invoice_no }
-                    });
-                    
-                    if (existingInvoice) {
-                        errors.push({
-                            invoice_no: validatedInvoice.invoice_no,
-                            errors: ["Invoice number already exists"]
-                        });
-                        continue;
+                    if (!validInvoices.has(invoice.invoice_no)) {
+                        validInvoices.set(invoice.invoice_no, invoice);
                     }
-                    
-                    validInvoices.set(validatedInvoice.invoice_no, validatedInvoice);
                 } catch (error) {
-                    // Parse validation error if it's stringified
-                    let errorMessage = error instanceof Error ? error.message : String(error);
-                    try {
-                        const parsedError = JSON.parse(errorMessage);
-                        errorMessage = parsedError.errors?.map((e: any) => 
-                            `${e.field}: ${e.message}`
-                        ).join(', ') || errorMessage;
-                    } catch {
-                        // If parsing fails, use the original message
-                    }
-
                     errors.push({
-                        invoice_no: (invoice as ExcelInvoice).invoice_no || 'Unknown',
-                        errors: [errorMessage]
+                        invoice_no: invoice.invoice_no || 'Unknown',
+                        errors: formatValidationError(error)
                     });
                 }
             }
 
-            // Validate products and match with invoices
-            for (const product of products) {
+            // Validate products
+            for (const rawProduct of products) {
                 try {
-                    const validatedProduct = await Validator.validateAsync(
+                    // Convert string numbers to actual numbers and validate
+                    const quantity = Number(rawProduct.quantity);
+                    const total_cogs = Number(rawProduct.total_cogs);
+                    const total_price = Number(rawProduct.total_price);
+
+                    // Check if conversions are valid numbers
+                    if (isNaN(quantity) || isNaN(total_cogs) || isNaN(total_price)) {
+                        throw new Error(JSON.stringify({
+                            errors: [
+                                ...(isNaN(quantity) ? [{ field: 'quantity', message: 'Must be a valid number' }] : []),
+                                ...(isNaN(total_cogs) ? [{ field: 'total_cogs', message: 'Must be a valid number' }] : []),
+                                ...(isNaN(total_price) ? [{ field: 'total_price', message: 'Must be a valid number' }] : [])
+                            ]
+                        }));
+                    }
+
+                    const cleanedProduct: ExcelProduct = {
+                        invoice_no: rawProduct.invoice_no,
+                        item: rawProduct.item,
+                        quantity,
+                        total_cogs,
+                        total_price
+                    };
+
+                    await Validator.validateAsync(
                         InvoiceValidation.importInvoice.product, 
-                        product
+                        cleanedProduct
                     );
-                    
-                    if (!validInvoices.has(validatedProduct.invoice_no)) {
+
+                    if (!validInvoices.has(cleanedProduct.invoice_no)) {
                         errors.push({
-                            invoice_no: validatedProduct.invoice_no,
+                            invoice_no: cleanedProduct.invoice_no,
                             errors: ["Product references non-existent invoice"]
                         });
-                        validInvoices.delete(validatedProduct.invoice_no);
                         continue;
                     }
-                    
-                    const invoice = validInvoices.get(validatedProduct.invoice_no);
-                    if (invoice && !invoice.products) {
-                        invoice.products = [];
+
+                    const invoice = validInvoices.get(cleanedProduct.invoice_no);
+                    if (invoice) {
+                        if (!invoice.products) {
+                            invoice.products = [];
+                        }
+                        invoice.products.push(cleanedProduct);
                     }
-                    invoice?.products?.push(validatedProduct);
-                    
                 } catch (error) {
                     errors.push({
-                        invoice_no: (product as ExcelProduct).invoice_no || 'Unknown',
-                        errors: [(error as Error).message]
+                        invoice_no: rawProduct.invoice_no || 'Unknown',
+                        errors: formatValidationError(error)
                     });
-                    validInvoices.delete((product as ExcelProduct).invoice_no);
                 }
             }
 
